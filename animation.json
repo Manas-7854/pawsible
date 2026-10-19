@@ -1,0 +1,10 @@
+{
+  "actions": {
+    "idle": {"source": "sprites/Pingu.png", "frames": [[0, 0, 16, 16], [0, 16, 16, 16]], "duration_ms": 420, "loop": true},
+    "walk": {"source": "sprites/WALK_SPRITE_SHEET.png", "frames": [[0, 0, 16, 16], [16, 0, 16, 16], [32, 0, 16, 16], [0, 16, 16, 16], [16, 16, 16, 16]], "duration_ms": 105, "loop": true},
+    "jump": {"source": "sprites/Pingu.png", "frames": [[0, 0, 16, 16], [16, 0, 16, 16], [32, 0, 16, 16], [48, 0, 16, 16], [64, 0, 16, 16], [80, 0, 16, 16], [96, 0, 16, 16]], "duration_ms": 120, "loop": false},
+    "slip": {"source": "sprites/Pingu.png", "frames": [[112, 0, 16, 16], [16, 0, 16, 16], [64, 16, 16, 16], [80, 16, 16, 16], [96, 16, 16, 16]], "duration_ms": 150, "loop": false},
+    "dive": {"source": "sprites/Pingu.png", "frames": [[112, 64, 16, 16], [16, 80, 16, 16], [32, 80, 16, 16], [48, 80, 16, 16], [64, 80, 16, 16], [80, 80, 16, 16], [96, 80, 16, 16]], "duration_ms": 140, "loop": false},
+    "reaction": {"source": "sprites/Pingu.png", "frames": [[0, 32, 16, 16], [16, 32, 16, 16], [32, 32, 16, 16], [48, 32, 16, 16], [64, 32, 16, 16]], "duration_ms": 150, "loop": false}
+  }
+}
