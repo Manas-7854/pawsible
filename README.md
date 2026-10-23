@@ -13,7 +13,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-The sprite files are not tracked in Git. Before launching a fresh clone, add `sprites/Pingu.png` and `sprites/WALK_SPRITE_SHEET.png`.
+The included `sprites/` directory provides the penguin animations.
 
 To start Jamun automatically when you log in, run:
 
@@ -37,3 +37,7 @@ Run `python main.py --install-shortcuts` to add the default GNOME shortcuts:
 | `Ctrl+Alt+Space` | Hide the pet and chat |
 
 Click the pet to open chat, drag it to move it, or right-click it for Settings and Quit. In chat, `Ctrl+N` starts a conversation, `Ctrl+1/2/3` switches between Chat, Todos, and Memory, and `Esc` returns to the pet.
+
+## Credits
+
+Penguin sprites: [PENGU by stext25](https://stext25.itch.io/pengu).
