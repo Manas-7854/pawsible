@@ -147,7 +147,7 @@ class GeminiProvider:
                 replies = []
                 for call in calls:
                     args = dict(call.args or {})
-                    if call.name in {"add_task", "update_task", "complete_task"} and not (
+                    if call.name in {"update_task", "complete_task"} and not (
                         self.approve_task_change and self.approve_task_change(call.name, args)
                     ):
                         result = {"success": False, "error": "The user did not approve this task change."}

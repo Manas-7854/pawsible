@@ -117,7 +117,7 @@ def test_failed_stream_discards_partial_task_calls_before_retry(tmp_path, monkey
     provider.stream([], [], [], lambda text: None, threading.Event())
 
     assert FakeClient.models.attempts == 2
-    assert approvals == [("add_task", {"title": "Buy milk"})]
+    assert approvals == []
     assert [row["title"] for row in Store(path).tasks()] == ["Buy milk"]
 
 
