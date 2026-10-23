@@ -1,0 +1,17 @@
+{
+  "play_actions": ["look", "pounce", "stretch", "sneak"],
+  "rest_actions": {"curl": [12, 20], "dream": [15, 25]},
+  "hover_actions": ["look", "stretch", "jump", "pounce"],
+  "actions": {
+    "idle": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 0, 32, 32, 9], "duration_ms": 190, "loop": true},
+    "look": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 32, 32, 32, 11], "duration_ms": 120, "loop": false},
+    "pounce": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 64, 32, 32, 11], "duration_ms": 95, "loop": false},
+    "curl": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 96, 32, 32, 6], "duration_ms": 140, "loop": false},
+    "stretch": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 128, 32, 32, 10], "duration_ms": 125, "loop": false},
+    "walk": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 160, 32, 32, 10], "duration_ms": 115, "loop": true},
+    "sneak": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 192, 32, 32, 10], "duration_ms": 170, "loop": false},
+    "dream": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 224, 32, 32, 11], "duration_ms": 160, "loop": true},
+    "jump": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 256, 32, 32, 6], "duration_ms": 100, "loop": false},
+    "reaction": {"source": "../Free_Cat_sprites/Cat_Sprite_Sheet_Black.png", "strip": [0, 32, 32, 32, 11], "duration_ms": 100, "loop": false}
+  }
+}

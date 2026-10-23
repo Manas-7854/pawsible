@@ -7,9 +7,9 @@ from markdown_it import MarkdownIt
 from PySide6.QtCore import Qt, QTimer, Signal, QObject
 from PySide6.QtGui import QKeyEvent, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
+    QApplication, QComboBox, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QPushButton, QSpinBox, QTabWidget,
+    QPushButton, QScrollArea, QSpinBox, QTabWidget,
     QTextBrowser, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -66,9 +66,13 @@ class PetWindow(QWidget):
     clicked = Signal()
     moved = Signal()
 
-    def __init__(self, actions, scale=5):
+    def __init__(self, actions, scale=5, play_actions=None, hover_actions=None, render_crop=None, rest_actions=None):
         super().__init__()
         self.actions = actions
+        self.play_actions = play_actions or [name for name in actions if name not in ("idle", "walk")]
+        self.hover_actions = hover_actions or ["reaction"]
+        self.rest_actions = rest_actions or {}
+        self.render_crop = render_crop
         self.scale = scale
         self.action = "idle"
         self.frame_index = 0
@@ -80,6 +84,12 @@ class PetWindow(QWidget):
         self.last_motion = 0.0
         self.speed = 0.0
         self.facing_left = False
+        self.hop_origin = None
+        self.hop_started = 0.0
+        self.hop_duration = 0.0
+        self.hover_cooldown_until = 0.0
+        self.rest_action = None
+        self.rest_until = 0.0
         self.next_behavior = time.monotonic() + 1.5
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -96,18 +106,32 @@ class PetWindow(QWidget):
         self.setFixedSize(16 * scale, 16 * scale)
         self.update()
 
+    def set_character(self, actions, play_actions, hover_actions=None, render_crop=None, rest_actions=None):
+        self.halt_movement()
+        self.actions = actions
+        self.play_actions = play_actions
+        self.hover_actions = hover_actions or ["reaction"]
+        self.rest_actions = rest_actions or {}
+        self.render_crop = render_crop
+        self.hover_cooldown_until = 0.0
+        self.set_action("idle")
+        if not self.isVisible():
+            self.animation_timer.stop()
+        self.update()
+
     def set_action(self, name):
         self.action = name
         self.frame_index = 0
-        self.animation_timer.start(self.actions[name]["duration_ms"])
+        if self.isVisible():
+            self.animation_timer.start(self.actions[name]["duration_ms"])
         self.update()
 
     def start(self):
         self.position = (float(self.x()), float(self.y()))
         self.next_behavior = time.monotonic() + random.uniform(1, 2.5)
+        self.show()
         self.set_action("idle")
         self.behavior_timer.start()
-        self.show()
 
     def stop(self):
         self.halt_movement()
@@ -116,9 +140,57 @@ class PetWindow(QWidget):
         self.hide()
 
     def halt_movement(self):
+        if self.hop_origin is not None:
+            self.move(*self.hop_origin)
+            self.hop_origin = None
         self.target = None
+        self.rest_action = None
+        self.rest_until = 0.0
+        self.behavior_timer.setInterval(33)
         self.position = (float(self.x()), float(self.y()))
         self.next_behavior = time.monotonic() + random.uniform(1, 2.5)
+
+    def start_rest(self, name, now=None):
+        if self.paused or self.dragging or name not in self.rest_actions:
+            return False
+        self.halt_movement()
+        now = time.monotonic() if now is None else now
+        self.rest_action = name
+        self.rest_until = now + random.uniform(*self.rest_actions[name])
+        self.next_behavior = self.rest_until
+        self.set_action(name)
+        self.behavior_timer.setInterval(200)
+        return True
+
+    def resting_position(self):
+        return self.hop_origin or (self.x(), self.y())
+
+    def start_jump(self, now=None):
+        if self.paused or self.dragging:
+            return False
+        self.halt_movement()
+        now = time.monotonic() if now is None else now
+        self.hop_origin = (self.x(), self.y())
+        self.hop_started = now
+        animation = self.actions["jump"]
+        self.hop_duration = max(0.55, len(animation["frames"]) * animation["duration_ms"] / 1000)
+        self.hover_cooldown_until = now + self.hop_duration + 1.0
+        self.next_behavior = now + self.hop_duration + random.uniform(1.0, 2.4)
+        self.set_action("jump")
+        return True
+
+    def advance_jump(self, now):
+        progress = min(1.0, (now - self.hop_started) / self.hop_duration)
+        if progress >= 1.0:
+            self.move(*self.hop_origin)
+            self.hop_origin = None
+            self.position = (float(self.x()), float(self.y()))
+            self.set_action("idle")
+            return
+        screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        rise = min(self.height() * 0.8, self.hop_origin[1] - screen.availableGeometry().top())
+        lift = round(max(0, rise) * 4 * progress * (1 - progress))
+        self.move(self.hop_origin[0], self.hop_origin[1] - lift)
 
     def advance_frame(self):
         action = self.actions[self.action]
@@ -126,6 +198,11 @@ class PetWindow(QWidget):
         if self.frame_index >= len(action["frames"]):
             if action["loop"]:
                 self.frame_index = 0
+            elif self.action == "jump" and self.hop_origin is not None:
+                self.frame_index = len(action["frames"]) - 1
+            elif self.action == self.rest_action:
+                self.frame_index = len(action["frames"]) - 1
+                self.animation_timer.stop()
             else:
                 self.set_action("idle")
                 return
@@ -138,9 +215,11 @@ class PetWindow(QWidget):
         if self.action == "walk" and self.facing_left:
             painter.translate(self.width(), 0)
             painter.scale(-1, 1)
-        painter.drawPixmap(self.rect(), frame, frame.rect())
+        painter.drawPixmap(self.rect(), frame, self.render_crop or frame.rect())
 
     def keep_on_screen(self):
+        if self.hop_origin is not None:
+            self.halt_movement()
         screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
         area = screen.availableGeometry()
         x = max(area.left(), min(self.x(), area.right() - self.width() + 1))
@@ -184,9 +263,17 @@ class PetWindow(QWidget):
         return True
 
     def behave(self):
-        if self.paused or self.dragging:
+        if self.dragging:
+            return
+        if self.paused:
+            if self.hop_origin is not None:
+                self.halt_movement()
+                self.set_action("idle")
             return
         now = time.monotonic()
+        if self.hop_origin is not None:
+            self.advance_jump(now)
+            return
         if self.target is not None:
             x, y = self.position
             dx, dy = self.target[0] - x, self.target[1] - y
@@ -204,15 +291,33 @@ class PetWindow(QWidget):
                 self.move(round(self.position[0]), round(self.position[1]))
             self.moved.emit()
             return
+        if self.rest_action is not None:
+            if now >= self.rest_until:
+                self.rest_action = None
+                self.rest_until = 0.0
+                self.behavior_timer.setInterval(33)
+                self.set_action("idle")
+                self.next_behavior = now + random.uniform(0.8, 2.0)
+            return
         if now < self.next_behavior:
             return
-        choice = random.choices(["walk", "jump", "slip", "dive", "reaction"], weights=[10, 1, 1, 1, 1])[0]
+        roll = random.random()
+        if self.rest_actions:
+            choice = "walk" if roll < 0.45 else "jump" if roll < 0.63 else "rest" if roll < 0.83 else "play"
+        else:
+            choice = "walk" if roll < 0.55 else "jump" if roll < 0.75 else "play"
         if choice == "walk":
             if not self.start_trip():
                 self.next_behavior = now + 2
+        elif choice == "jump":
+            self.start_jump(now)
+        elif choice == "rest":
+            self.start_rest(random.choice(list(self.rest_actions)), now)
         else:
+            choice = random.choice(self.play_actions) if self.play_actions else "idle"
             self.set_action(choice)
-            self.next_behavior = now + random.uniform(1.5, 3)
+            duration = len(self.actions[choice]["frames"]) * self.actions[choice]["duration_ms"] / 1000
+            self.next_behavior = now + duration + random.uniform(0.8, 2.2)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -222,9 +327,18 @@ class PetWindow(QWidget):
             self.context_menu.exec(event.globalPosition().toPoint())
 
     def enterEvent(self, event):
-        if not self.dragging and self.action in ("idle", "walk"):
-            self.halt_movement()
-            self.set_action("reaction")
+        now = time.monotonic()
+        if not self.dragging and self.rest_action in (None, "idle") and now >= self.hover_cooldown_until and self.action in ("idle", "walk"):
+            choice = random.choice(self.hover_actions)
+            if choice == "jump" and not self.paused:
+                self.start_jump(now)
+            else:
+                self.halt_movement()
+                self.set_action("reaction" if choice == "jump" else choice)
+                action = self.actions[self.action]
+                duration = len(action["frames"]) * action["duration_ms"] / 1000
+                self.hover_cooldown_until = now + duration + 1.0
+                self.next_behavior = now + duration + random.uniform(1.0, 2.2)
         super().enterEvent(event)
 
     def showEvent(self, event):
@@ -258,11 +372,15 @@ class PetWindow(QWidget):
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, store, parent=None):
+    def __init__(self, store, characters, parent=None):
         super().__init__(parent)
         self.setWindowTitle("jamun settings")
         self.store = store
         layout = QFormLayout(self)
+        self.character = QComboBox()
+        for ident, character in characters.items():
+            self.character.addItem(character["label"], ident)
+        self.character.setCurrentIndex(max(0, self.character.findData(store.setting("character", "penguin"))))
         self.model = QLineEdit(store.setting("model", "gemini-3.5-flash-lite"))
         self.open_shortcut = QLineEdit(store.setting("open_shortcut", "<Shift>space"))
         self.hide_shortcut = QLineEdit(store.setting("hide_shortcut", "<Ctrl><Alt>space"))
@@ -270,9 +388,10 @@ class SettingsDialog(QDialog):
         self.size.setRange(2, 10)
         self.size.setValue(int(store.setting("size", 5)))
         layout.addRow("Gemini model", self.model)
+        layout.addRow("Character", self.character)
         layout.addRow("Open chat shortcut (GNOME)", self.open_shortcut)
         layout.addRow("Hide jamun shortcut (GNOME)", self.hide_shortcut)
-        layout.addRow("Penguin size", self.size)
+        layout.addRow("Character size", self.size)
         hint = QLabel("Shortcut changes are applied through GNOME custom keybindings.")
         hint.setWordWrap(True)
         layout.addRow(hint)
@@ -286,6 +405,7 @@ class SettingsDialog(QDialog):
                 QMessageBox.warning(self, "Missing setting", f"{key} cannot be empty")
                 return
             self.store.set_setting(key, value)
+        self.store.set_setting("character", self.character.currentData())
         super().accept()
 
 
@@ -305,7 +425,8 @@ class ChatWindow(QWidget):
         self.resize(620, 520)
         root = QVBoxLayout(self)
         header = QHBoxLayout()
-        header.addWidget(QLabel("🐧  jamun"))
+        self.header_label = QLabel("🐧  jamun")
+        header.addWidget(self.header_label)
         header.addStretch()
         settings = QPushButton("⚙")
         settings.clicked.connect(self.settings_requested)
@@ -410,6 +531,10 @@ class ChatWindow(QWidget):
             QTabBar::tab { background: #202a3b; padding: 8px 15px; border-radius: 7px; }
             QTabBar::tab:selected { background: #3b5574; }
         """)
+
+    def set_character_label(self, ident):
+        icon = {"penguin": "🐧", "midnight_cat": "🐈‍⬛", "shadow_cat": "🐈‍⬛", "white_cat": "🐈", "fox": "🦊"}.get(ident, "🐧")
+        self.header_label.setText(f"{icon}  jamun")
 
     def closeEvent(self, event):
         if self.allow_close:
@@ -602,12 +727,23 @@ class PreviewDialog(QDialog):
     def __init__(self, actions):
         super().__init__()
         self.setWindowTitle("jamun animation preview")
+        self.resize(950, 650)
         layout = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        rows = QVBoxLayout(content)
         for name, action in actions.items():
             row = QHBoxLayout()
-            row.addWidget(QLabel(name))
+            title = QLabel(name)
+            title.setFixedWidth(100)
+            row.addWidget(title)
             for frame in action["frames"]:
                 label = QLabel()
-                label.setPixmap(frame.scaled(64, 64, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation))
+                label.setPixmap(frame.scaled(48, 48, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation))
                 row.addWidget(label)
-            layout.addLayout(row)
+            row.addStretch()
+            rows.addLayout(row)
+        rows.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)

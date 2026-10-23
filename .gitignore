@@ -7,3 +7,7 @@ __pycache__/
 .pytest_cache/
 *.sqlite3*
 *.db
+/Free_Cat_sprites/
+/black_cat_sprites/
+/white_cat_sprites/
+/fox sprites/

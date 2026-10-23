@@ -1,0 +1,17 @@
+{
+  "play_actions": ["playing", "playing", "attack", "sad", "knocked", "hurt"],
+  "rest_actions": {"sleep": [8, 14]},
+  "hover_actions": ["playing", "playing", "jump", "attack"],
+  "actions": {
+    "idle": {"source": "../black_cat_sprites/Sheet_Cat_Sat.png", "strip": [0, 0, 64, 64, 2], "hold_last": 3, "duration_ms": 280, "loop": true},
+    "walk": {"source": "../black_cat_sprites/Sheet_Cat_Run.png", "strip": [0, 0, 64, 64, 2], "duration_ms": 155, "loop": true},
+    "attack": {"source": "../black_cat_sprites/Sheet_Cat_Attack.png", "strip": [0, 0, 64, 64, 2], "hold_last": 1, "duration_ms": 200, "loop": false},
+    "hurt": {"source": "../black_cat_sprites/Sheet_Cat_Hurt.png", "strip": [0, 0, 64, 64, 2], "hold_last": 2, "duration_ms": 230, "loop": false},
+    "jump": {"source": "../black_cat_sprites/Sheet_Cat_Jump.png", "strip": [0, 0, 64, 64, 2], "hold_last": 1, "duration_ms": 210, "loop": false},
+    "knocked": {"source": "../black_cat_sprites/Sheet_Cat_Knocked.png", "strip": [0, 0, 64, 64, 2], "hold_last": 2, "duration_ms": 270, "loop": false},
+    "playing": {"source": "../black_cat_sprites/Sheet_Cat_Playing.png", "strip": [0, 0, 64, 64, 2], "hold_last": 1, "duration_ms": 210, "loop": false},
+    "sad": {"source": "../black_cat_sprites/Sheet_Cat_Sad.png", "strip": [0, 0, 64, 64, 2], "hold_last": 2, "duration_ms": 270, "loop": false},
+    "sleep": {"source": "../black_cat_sprites/Sheet_Cat_Sleep.png", "strip": [0, 0, 64, 64, 2], "hold_last": 4, "duration_ms": 260, "loop": false},
+    "reaction": {"source": "../black_cat_sprites/Sheet_Cat_Playing.png", "strip": [0, 0, 64, 64, 2], "hold_last": 1, "duration_ms": 190, "loop": false}
+  }
+}

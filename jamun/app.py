@@ -9,11 +9,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from PySide6.QtCore import QObject, QStandardPaths, Qt, QThread, QTimer, Slot
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QActionGroup, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from .animation import load_manifest
+from .animation import load_characters
 from .provider import GeminiProvider
 from .shortcuts import install_shortcuts, remove_shortcuts
 from .storage import Store, secure_data_dir, secure_data_file
@@ -50,20 +50,26 @@ def send_existing(name, command):
 
 
 class JamunApp(QObject):
-    def __init__(self, qt, server, store, actions, api_key):
+    def __init__(self, qt, server, store, characters, api_key):
         super().__init__()
         self.qt = qt
         self.server = server
         self.store = store
         self.api_key = api_key
+        self.characters = characters
+        self.character_id = store.setting("character", "penguin")
+        if self.character_id not in characters:
+            self.character_id = "penguin"
+        character = characters[self.character_id]
         self.state = "hidden"
         self.worker = None
         self.thread = None
         self.reply = ""
         self.active_message_id = None
         self.active_conversation_id = None
-        self.pet = PetWindow(actions, int(store.setting("size", 5)))
+        self.pet = PetWindow(character["actions"], int(store.setting("size", 5)), character["play_actions"], character["hover_actions"], character["render_crop"], character["rest_actions"])
         self.chat = ChatWindow(store)
+        self.chat.set_character_label(self.character_id)
         self.position_save_timer = QTimer(self)
         self.position_save_timer.setSingleShot(True)
         self.position_save_timer.setInterval(500)
@@ -78,10 +84,20 @@ class JamunApp(QObject):
         self.menu.addAction("Open chat", lambda: self.set_state("chat"))
         self.menu.addAction("Hide all", lambda: self.set_state("hidden"))
         self.pause_action = self.menu.addAction("Resume movement" if store.setting("paused", "0") == "1" else "Pause movement", self.toggle_pause)
+        character_menu = self.menu.addMenu("Character")
+        self.character_group = QActionGroup(self.menu)
+        self.character_menu_actions = {}
+        for ident, entry in characters.items():
+            action = character_menu.addAction(entry["label"])
+            action.setCheckable(True)
+            action.setChecked(ident == self.character_id)
+            action.triggered.connect(lambda _checked=False, selected=ident: self.change_character(selected))
+            self.character_group.addAction(action)
+            self.character_menu_actions[ident] = action
         self.menu.addAction("Settings", self.settings)
         self.menu.addAction("Quit jamun", self.quit)
         self.pet.context_menu = self.menu
-        self.tray = QSystemTrayIcon(QIcon(actions["idle"]["frames"][0]))
+        self.tray = QSystemTrayIcon(QIcon(character["actions"]["idle"]["frames"][0]))
         self.tray.setToolTip("jamun")
         self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(lambda reason: self.set_state("chat") if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
@@ -99,8 +115,9 @@ class JamunApp(QObject):
         self.pet.keep_on_screen()
 
     def save_position(self):
-        self.store.set_setting("pet_x", self.pet.x())
-        self.store.set_setting("pet_y", self.pet.y())
+        x, y = self.pet.resting_position()
+        self.store.set_setting("pet_x", x)
+        self.store.set_setting("pet_y", y)
 
     def set_state(self, state):
         if state == "hidden":
@@ -137,6 +154,11 @@ class JamunApp(QObject):
     def command(self, name):
         if name == "quit":
             self.quit()
+        elif name.startswith("character:"):
+            ident = name.split(":", 1)[1]
+            if ident in self.characters:
+                self.change_character(ident)
+                self.set_state("pet")
         else:
             self.set_state(next_state(self.state, name))
 
@@ -146,7 +168,7 @@ class JamunApp(QObject):
             socket.waitForReadyRead(300)
             command = bytes(socket.readAll()).decode().strip()
             socket.deleteLater()
-            if command in ("toggle", "focus", "hide", "pet", "chat", "quit"):
+            if command in ("toggle", "focus", "hide", "pet", "chat", "quit") or command in {f"character:{ident}" for ident in self.characters}:
                 self.command(command)
 
     def toggle_pause(self):
@@ -159,11 +181,26 @@ class JamunApp(QObject):
         self.pause_action.setText("Resume movement" if paused else "Pause movement")
         self.chat.status.setText("Movement paused" if paused else "Movement resumed")
 
+    def change_character(self, ident):
+        if ident not in self.characters:
+            return
+        self.character_id = ident
+        self.store.set_setting("character", ident)
+        character = self.characters[ident]
+        self.pet.set_character(character["actions"], character["play_actions"], character["hover_actions"], character["render_crop"], character["rest_actions"])
+        self.tray.setIcon(QIcon(character["actions"]["idle"]["frames"][0]))
+        self.chat.set_character_label(ident)
+        self.character_menu_actions[ident].setChecked(True)
+        self.chat.status.setText(f"Character: {character['label']}")
+
     def settings(self):
-        dialog = SettingsDialog(self.store, self.chat)
+        dialog = SettingsDialog(self.store, self.characters, self.chat)
         if dialog.exec():
+            self.change_character(self.store.setting("character", "penguin"))
             self.pet.set_scale(int(self.store.setting("size", 5)))
             self.pet.keep_on_screen()
+            if self.state == "chat":
+                self.anchor_chat()
             if os.environ.get("XDG_CURRENT_DESKTOP", "").upper().find("GNOME") >= 0:
                 try:
                     install_shortcuts(ROOT, self.store.setting("open_shortcut", "<Shift>space"), self.store.setting("hide_shortcut", "<Ctrl><Alt>space"))
@@ -305,6 +342,7 @@ def main():
     parser = argparse.ArgumentParser(description="jamun desktop companion")
     parser.add_argument("--command", choices=["toggle", "focus", "hide", "pet", "chat", "quit"], default="chat")
     parser.add_argument("--preview", action="store_true")
+    parser.add_argument("--character", help="Select an installed character")
     parser.add_argument("--install-shortcuts", action="store_true")
     parser.add_argument("--remove-shortcuts", action="store_true")
     args = parser.parse_args()
@@ -325,13 +363,16 @@ def main():
         os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     qt = QApplication(sys.argv)
     qt.setQuitOnLastWindowClosed(False)
-    actions = load_manifest(ROOT / "animation.json")
+    characters = load_characters(ROOT / "characters.json")
+    if args.character and args.character not in characters:
+        parser.error(f"Character {args.character!r} is unavailable. Installed choices: {', '.join(characters)}")
     if args.preview:
-        dialog = PreviewDialog(actions)
+        dialog = PreviewDialog(characters[args.character or "penguin"]["actions"])
         dialog.show()
         return qt.exec()
     name = str(data_dir / "jamun.sock")
-    if send_existing(name, args.command):
+    command = f"character:{args.character}" if args.character else args.command
+    if send_existing(name, command):
         return 0
     secure_data_file(data_dir / "jamun.lock")
     lock_file = (data_dir / "jamun.lock").open("a+")
@@ -340,7 +381,7 @@ def main():
     except BlockingIOError:
         for _ in range(10):
             time.sleep(0.2)
-            if send_existing(name, args.command):
+            if send_existing(name, command):
                 return 0
         raise RuntimeError("jamun is already starting; try the command again")
     QLocalServer.removeServer(name)
@@ -349,7 +390,7 @@ def main():
     if not server.listen(name):
         raise RuntimeError("Could not start the single-instance command socket")
     store = Store(database)
-    app = JamunApp(qt, server, store, actions, os.getenv("GEMINI_API_KEY", ""))
+    app = JamunApp(qt, server, store, characters, os.getenv("GEMINI_API_KEY", ""))
     app.lock_file = lock_file
-    app.command(args.command)
+    app.command(command)
     return qt.exec()
