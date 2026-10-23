@@ -1,6 +1,6 @@
-# Your desktop pet
+# Pawsible
 
-Jamun puts a little pet on your desktop. Click it to chat, keep todos, and save memories. The penguin is included, and other characters become available when their sprite sheets are installed locally.
+Pawsible puts a little pet on your desktop. Click it to chat, keep todos, and save memories. Jamun, the penguin, is included, and other characters become available when their sprite sheets are installed locally.
 
 Built for Fedora GNOME with Wayland and XWayland.
 
@@ -13,7 +13,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-Jamun uses Python's built-in `sqlite3` module to create a local SQLite database automatically. It needs no separate database server or pip package. On Fedora, the file is normally at `~/.local/share/jamun/jamun.sqlite3`.
+Pawsible uses Python's built-in `sqlite3` module to create a local SQLite database automatically. It needs no separate database server or pip package. On Fedora, the file is normally at `~/.local/share/jamun/jamun.sqlite3`.
 
 The included `sprites/` directory provides the penguin animations.
 
@@ -36,21 +36,21 @@ To install optional characters, download the sheet yourself and copy only the na
 2. For **Midnight cat**, download [Cat Pack by octopusINKUS](https://octopusinkus.itch.io/cat-pack?utm_source=chatgpt.com). Find `Cat_Sprite_Sheet_Black.png` in the downloaded pack, create `Free_Cat_sprites/` in this repository, and copy that PNG into the directory. If your download does not contain the black sheet, obtain the pack version that includes it.
 3. For **White cat**, download [2D Pixel Art Cat Sprites by Elthen](https://elthen.itch.io/2d-pixel-art-cat-sprites?utm_source=chatgpt.com). Create `white_cat_sprites/` and copy `Cat Sprite Sheet.png` into it.
 4. For **Fox**, download [2D Pixel Art Fox Sprites by Elthen](https://elthen.itch.io/2d-pixel-art-fox-sprites?utm_source=chatgpt.com). Create `fox sprites/` and copy `Fox Sprite Sheet.png` into it. Keep the space in the folder and file names.
-5. If Jamun is running, right-click the pet and choose Quit. Then run `python main.py --command pet` from this repository and choose a character from the pet's right-click menu or Settings. Jamun scans for sprites when it starts, so opening it again without quitting the old process will not refresh the list.
+5. If Pawsible is running, right-click the pet and choose Quit. Then run `python main.py --command pet` from this repository and choose a character from the pet's right-click menu or Settings. Pawsible scans for sprites when it starts, so opening it again without quitting the old process will not refresh the list.
 
 All four optional sprite folders are ignored by Git; keep their sprites on your own machine. Jules allows personal use but prohibits redistributing the Shadow cat pack. [Elthen's current license](https://www.patreon.com/elthen/posts/licensing-27430241) allows use in projects but prohibits redistributing the raw Fox and White cat assets. Missing sheets remove only that character from the selector, so the app still starts with the penguin.
 
-To start Jamun automatically when you log in, run:
+To start Pawsible automatically when you log in, run:
 
 ```sh
 python install_startup.py install
 ```
 
-The script adds a GNOME autostart entry that launches Jamun hidden at your next login. It does not install keyboard shortcuts; use the separate command under Controls. Run `python install_startup.py remove` to undo it.
+The script adds a GNOME autostart entry that launches Pawsible hidden at your next login. It does not install keyboard shortcuts; use the separate command under Controls. Run `python install_startup.py remove` to undo it.
 
 ## Set up chat
 
-Create a [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) in Google AI Studio. Run `install -m 600 .env.example .env`, replace `replace-with-your-key` in `.env` with your key, then restart Jamun. Gemini-powered chat, todos, and memory use `gemini-3.5-flash-lite` by default; you can change the model in Settings. The pet works without a key.
+Create a [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) in Google AI Studio. Run `install -m 600 .env.example .env`, replace `replace-with-your-key` in `.env` with your key, then restart Pawsible. Gemini-powered chat, todos, and memory use `gemini-3.5-flash-lite` by default; you can change the model in Settings. The pet works without a key.
 
 ## Controls
 
