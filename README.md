@@ -87,4 +87,4 @@ Midnight cat sprites: [Cat Pack by octopusINKUS](https://octopusinkus.itch.io/ca
 
 ## Contributing
 
-Contributions are welcome. Feel free to make and commit changes in your fork, then open a pull request.
+Contributions are welcome. Feel free to create issues or contribute pull requests for existing issues :)
