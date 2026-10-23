@@ -108,10 +108,10 @@ class GeminiProvider:
             for _ in range(4):
                 if stopped.is_set():
                     return
-                calls = []
-                model_parts = []
                 text_started = False
                 for attempt in range(3):
+                    calls = []
+                    model_parts = []
                     try:
                         stream = client.models.generate_content_stream(model=self.model, contents=contents, config=config)
                         for chunk in stream:

@@ -85,6 +85,42 @@ def test_model_cannot_change_tasks_without_approval(tmp_path, monkeypatch):
     assert store.tasks()[0]["status"] == "done"
 
 
+def test_failed_stream_discards_partial_task_calls_before_retry(tmp_path, monkeypatch):
+    class RetryableError(Exception):
+        code = 503
+
+    class FakeModels:
+        attempts = 0
+
+        def generate_content_stream(self, *, contents, **kwargs):
+            if contents:
+                assert len(contents[-2].parts) == 1
+                assert len(contents[-1].parts) == 1
+                yield SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[types.Part.from_text(text="Saved")]))])
+                return
+            self.attempts += 1
+            yield SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[types.Part.from_function_call(name="add_task", args={"title": "Buy milk"})]))])
+            if self.attempts == 1:
+                raise RetryableError()
+
+    class FakeClient:
+        models = FakeModels()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("jamun.provider.genai.Client", lambda **kwargs: FakeClient())
+    path = tmp_path / "jamun.sqlite3"
+    approvals = []
+    provider = GeminiProvider("test-key", "test-model", path)
+    provider.approve_task_change = lambda name, args: approvals.append((name, args)) or True
+    provider.stream([], [], [], lambda text: None, threading.Event())
+
+    assert FakeClient.models.attempts == 2
+    assert approvals == [("add_task", {"title": "Buy milk"})]
+    assert [row["title"] for row in Store(path).tasks()] == ["Buy milk"]
+
+
 def test_legacy_data_migrates_without_overwriting_or_deleting_source(tmp_path):
     old_path = tmp_path / "Pengu" / "pengu.sqlite3"
     old = Store(old_path)

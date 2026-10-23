@@ -4,13 +4,17 @@
 
 Pawsible puts a little pet on your desktop. Click it to chat, keep todos, and save memories. Jamun, the penguin, is included, and other characters become available when their sprite sheets are installed locally.
 
-Built for Fedora GNOME with Wayland and XWayland.
+Tested on Fedora GNOME with Wayland and XWayland. Other Linux desktops may work, but global shortcut setup currently requires GNOME.
 
 ## Install
 
-From this directory, with Python available:
+Use Python 3.10–3.14. Copy this repository's URL from its Git hosting page, then create a virtual environment:
 
 ```sh
+git clone URL_FROM_REPOSITORY_PAGE pawsible
+cd pawsible
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 python main.py
 ```
@@ -54,6 +58,10 @@ The script adds a GNOME autostart entry that launches Pawsible hidden at your ne
 
 Create a [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) in Google AI Studio. Run `install -m 600 .env.example .env`, replace `replace-with-your-key` in `.env` with your key, then restart Pawsible. Gemini-powered chat, todos, and memory use `gemini-3.5-flash-lite` by default; you can change the model in Settings. The pet works without a key.
 
+## Data and privacy
+
+Pawsible stores conversations, todos, memories, and settings in the local SQLite database. When you use Gemini chat, selected conversation history, up to 20 saved memories, and up to 30 task titles, statuses, and IDs are sent to Google as context. If Gemini requests a task list, task notes can also be included in the response sent to Google. The pet can run without an API key; Gemini features require one.
+
 ## Controls
 
 Run `python main.py --install-shortcuts` to add the default GNOME shortcuts:
@@ -76,3 +84,7 @@ White cat sprites: [2D Pixel Art Cat Sprites by Elthen](https://elthen.itch.io/2
 Shadow cat sprites: [Cat Sprite Pack by Jules](https://julesleech.itch.io/cat-sprite-pack?utm_source=chatgpt.com).
 
 Midnight cat sprites: [Cat Pack by octopusINKUS](https://octopusinkus.itch.io/cat-pack?utm_source=chatgpt.com).
+
+## Contributing
+
+Contributions are welcome. Feel free to make and commit changes in your fork, then open a pull request.

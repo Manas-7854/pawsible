@@ -8,6 +8,21 @@ DESTINATION = Path.home() / ".config" / "autostart" / "jamun.desktop"
 LEGACY_DESTINATION = DESTINATION.with_name("pengu.desktop")
 
 
+def desktop_exec_arg(value):
+    # Desktop-entry Exec quoting has two escaping layers, unlike shell quoting.
+    escaped = []
+    for char in str(value):
+        if char == "%":
+            escaped.append("%%")
+        elif char == "\\":
+            escaped.append("\\" * 4)
+        elif char in ('"', "`", "$"):
+            escaped.append("\\" * 2 + char)
+        else:
+            escaped.append(char)
+    return '"' + "".join(escaped) + '"'
+
+
 def remove_legacy_entry():
     if LEGACY_DESTINATION.exists() and str(ROOT / "main.py") in LEGACY_DESTINATION.read_text():
         LEGACY_DESTINATION.unlink()
@@ -20,9 +35,10 @@ def main():
     args = parser.parse_args()
     if args.action == "install":
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
+        launch = f"{desktop_exec_arg(sys.executable)} {desktop_exec_arg(ROOT / 'main.py')} --command hide"
         DESTINATION.write_text(
-            "[Desktop Entry]\nType=Application\nName=jamun\nComment=Desktop penguin companion\n"
-            f"Exec={sys.executable} {ROOT / 'main.py'} --command hide\n"
+            "[Desktop Entry]\nType=Application\nName=Pawsible\nComment=Desktop pet companion\n"
+            f"Exec={launch}\n"
             "Terminal=false\nX-GNOME-Autostart-enabled=true\n"
         )
         print(f"Installed {DESTINATION}")
