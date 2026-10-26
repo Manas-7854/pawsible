@@ -1,11 +1,15 @@
 import argparse
-import fcntl
 import os
 import re
 import sqlite3
 import sys
 import time
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # not available on Windows
+    fcntl = None
 
 from dotenv import load_dotenv
 from PySide6.QtCore import QObject, QStandardPaths, Qt, QThread, QTimer, Slot
@@ -321,9 +325,14 @@ def migrate_legacy_data(data_dir, legacy_db):
     secure_data_dir(data_dir)
     temporary = data_dir / "jamun.sqlite3.migrating"
     secure_data_file(temporary)
-    with sqlite3.connect(f"file:{legacy_db}?mode=ro", uri=True) as source:
-        with sqlite3.connect(temporary) as destination:
-            source.backup(destination)
+    source = sqlite3.connect(f"file:{legacy_db}?mode=ro", uri=True)
+    destination = sqlite3.connect(temporary)
+    try:
+        source.backup(destination)
+    finally:
+        # Windows won't rename a file that still has open handles
+        destination.close()
+        source.close()
     temporary.replace(database)
     return database
 
@@ -332,7 +341,8 @@ def load_private_env(path):
     if path.is_symlink():
         raise RuntimeError(f"Refusing a symlinked key file: {path}")
     if path.exists():
-        if not path.is_file() or path.stat().st_uid != os.getuid():
+        owned = not hasattr(os, "getuid") or path.stat().st_uid == os.getuid()
+        if not path.is_file() or not owned:
             raise RuntimeError(f"Key file must be a regular file owned by you: {path}")
         path.chmod(0o600)
         load_dotenv(path)
@@ -376,14 +386,15 @@ def main():
         return 0
     secure_data_file(data_dir / "jamun.lock")
     lock_file = (data_dir / "jamun.lock").open("a+")
-    try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        for _ in range(10):
-            time.sleep(0.2)
-            if send_existing(name, command):
-                return 0
-        raise RuntimeError("jamun is already starting; try the command again")
+    if fcntl is not None:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            for _ in range(10):
+                time.sleep(0.2)
+                if send_existing(name, command):
+                    return 0
+            raise RuntimeError("jamun is already starting; try the command again")
     QLocalServer.removeServer(name)
     server = QLocalServer()
     server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)

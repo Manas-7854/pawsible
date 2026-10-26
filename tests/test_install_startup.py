@@ -1,8 +1,12 @@
+import os
 import sys
+
+import pytest
 
 import install_startup
 
 
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="Autostart .desktop entries are a Linux/GNOME feature")
 def test_autostart_exec_quotes_paths_with_spaces(tmp_path, monkeypatch):
     root = tmp_path / "Pawsible project"
     root.mkdir()
