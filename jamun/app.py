@@ -21,7 +21,7 @@ from .animation import load_characters
 from .provider import GeminiProvider
 from .shortcuts import install_shortcuts, remove_shortcuts
 from .storage import Store, secure_data_dir, secure_data_file
-from .ui import ChatWindow, GenerationWorker, PetWindow, PreviewDialog, SettingsDialog
+from .ui import ChatWindow, GenerationWorker, PetWindow, PreviewDialog, SettingsDialog, keep_dialog_on_top, message_warning
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -209,7 +209,7 @@ class JamunApp(QObject):
                 try:
                     install_shortcuts(ROOT, self.store.setting("open_shortcut", "<Shift>space"), self.store.setting("hide_shortcut", "<Ctrl><Alt>space"))
                 except Exception as exc:
-                    QMessageBox.warning(self.chat, "Shortcuts", f"Settings saved, but GNOME shortcuts could not be installed: {exc}")
+                    message_warning(self.chat, "Shortcuts", f"Settings saved, but GNOME shortcuts could not be installed: {exc}")
 
     def send(self, text):
         if self.worker is not None:
@@ -264,6 +264,7 @@ class JamunApp(QObject):
             if request["worker"] is not self.worker or self.worker.stop_event.is_set():
                 return
             dialog = QMessageBox(self.chat)
+            keep_dialog_on_top(dialog)
             dialog.setWindowTitle("Confirm task change")
             dialog.setTextFormat(Qt.TextFormat.PlainText)
             dialog.setText(f"Allow jamun to change your tasks?\n\n{request['name']}: {request['args']}")
