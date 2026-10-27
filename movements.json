@@ -1,0 +1,32 @@
+{
+  "balanced": {
+    "label": "Balanced",
+    "speed": [60, 90],
+    "weights": {"walk": 45, "jump": 18, "rest": 20, "play": 17},
+    "pace": 1.0
+  },
+  "calm": {
+    "label": "Calm",
+    "speed": [45, 62],
+    "weights": {"walk": 34, "jump": 8, "rest": 42, "play": 16},
+    "pace": 1.6
+  },
+  "lazy": {
+    "label": "Lazy",
+    "speed": [48, 66],
+    "weights": {"walk": 40, "jump": 6, "rest": 40, "play": 14},
+    "pace": 1.8
+  },
+  "playful": {
+    "label": "Playful",
+    "speed": [85, 118],
+    "weights": {"walk": 38, "jump": 30, "rest": 8, "play": 24},
+    "pace": 0.8
+  },
+  "energetic": {
+    "label": "Energetic",
+    "speed": [92, 128],
+    "weights": {"walk": 36, "jump": 34, "rest": 7, "play": 23},
+    "pace": 0.6
+  }
+}

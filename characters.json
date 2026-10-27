@@ -1,7 +1,7 @@
 {
-  "penguin": {"label": "Penguin", "manifest": "animation.json"},
-  "midnight_cat": {"label": "Midnight cat", "manifest": "animations/midnight_cat.json", "optional": true, "outline": {"color": "#f7f9ff", "alpha": 225, "width": 1}},
-  "shadow_cat": {"label": "Shadow cat", "manifest": "animations/shadow_cat.json", "optional": true, "outline": {"color": "#f7f9ff", "alpha": 215, "width": 1}},
-  "white_cat": {"label": "White cat", "manifest": "animations/white_cat.json", "optional": true, "render_crop": [4, 8, 24, 24]},
-  "fox": {"label": "Fox", "manifest": "animations/fox.json", "optional": true}
+  "penguin": {"label": "Penguin", "manifest": "animation.json", "movement": "balanced"},
+  "midnight_cat": {"label": "Midnight cat", "manifest": "animations/midnight_cat.json", "optional": true, "outline": {"color": "#f7f9ff", "alpha": 225, "width": 1}, "movement": "lazy"},
+  "shadow_cat": {"label": "Shadow cat", "manifest": "animations/shadow_cat.json", "optional": true, "outline": {"color": "#f7f9ff", "alpha": 215, "width": 1}, "movement": "calm"},
+  "white_cat": {"label": "White cat", "manifest": "animations/white_cat.json", "optional": true, "render_crop": [4, 8, 24, 24], "movement": "playful"},
+  "fox": {"label": "Fox", "manifest": "animations/fox.json", "optional": true, "movement": "energetic"}
 }

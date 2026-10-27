@@ -4,7 +4,7 @@ from PySide6.QtCore import QEventLoop, QThread, QTimer
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication
 
-from jamun.animation import load_characters
+from jamun.animation import load_characters, load_movements
 from jamun.app import JamunApp
 from jamun.storage import Store
 from jamun.ui import GenerationWorker
@@ -55,7 +55,7 @@ def test_switching_conversations_keeps_reply_with_original(tmp_path, monkeypatch
     qt = QApplication.instance() or QApplication([])
     store = Store(tmp_path / "app.sqlite3")
     server = QLocalServer()
-    app = JamunApp(qt, server, store, load_characters(app_module.ROOT / "characters.json"), "test-key")
+    app = JamunApp(qt, server, store, load_characters(app_module.ROOT / "characters.json"), load_movements(app_module.ROOT / "movements.json"), "test-key")
     app.chat.new_conversation()
     first = app.chat.current_id
     app.send("First question")

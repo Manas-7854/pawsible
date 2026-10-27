@@ -10,13 +10,14 @@ from PySide6.QtGui import QColor, QEnterEvent, QImage
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication
 
-from jamun.animation import load_characters, load_manifest
+from jamun.animation import load_characters, load_manifest, load_movements
 from jamun.app import JamunApp, next_state
 from jamun.storage import Store
 from jamun.ui import PetWindow, SettingsDialog
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MOVEMENTS = load_movements(ROOT / "movements.json")
 
 
 def write_synthetic_penguin_sheets(root):
@@ -129,11 +130,11 @@ def test_optional_character_assets_and_switching(tmp_path):
     assert len(characters["fox"]["actions"]["walk"]["frames"]) == 14
 
     store = Store(tmp_path / "data" / "jamun.sqlite3")
-    dialog = SettingsDialog(store, characters)
+    dialog = SettingsDialog(store, characters, MOVEMENTS)
     dialog.character.setCurrentIndex(dialog.character.findData("fox"))
     dialog.accept()
     assert store.setting("character") == "fox"
-    app = JamunApp(qt, QLocalServer(), store, characters, "")
+    app = JamunApp(qt, QLocalServer(), store, characters, MOVEMENTS, "")
     assert app.character_id == "fox"
     app.command("character:penguin")
     assert app.character_id == "penguin"
@@ -181,7 +182,7 @@ def test_saved_missing_character_starts_with_penguin(tmp_path):
         "label": "Penguin", "actions": load_manifest(ROOT / "animation.json"),
         "play_actions": [], "hover_actions": ["reaction"], "rest_actions": {}, "render_crop": None,
     }}
-    app = JamunApp(qt, QLocalServer(), store, characters, "")
+    app = JamunApp(qt, QLocalServer(), store, characters, MOVEMENTS, "")
     app.set_state("pet")
     assert app.character_id == "penguin"
     assert app.pet.isVisible()
