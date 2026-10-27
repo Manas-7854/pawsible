@@ -3,6 +3,7 @@ import stat
 import threading
 from types import SimpleNamespace
 
+import pytest
 from google.genai import types
 
 from jamun.app import load_private_env, migrate_legacy_data
@@ -31,6 +32,7 @@ def test_persistence_and_task_validation(tmp_path):
     assert reopened.tasks()[0]["status"] == "done"
 
 
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX file permissions are not enforced on Windows")
 def test_existing_data_and_key_files_become_private(tmp_path, monkeypatch):
     data_dir = tmp_path / "jamun"
     store = Store(data_dir / "jamun.sqlite3")
@@ -132,7 +134,8 @@ def test_legacy_data_migrates_without_overwriting_or_deleting_source(tmp_path):
     old.db.close()
 
     new_path = migrate_legacy_data(tmp_path / "jamun", old_path)
-    assert stat.S_IMODE(new_path.stat().st_mode) == 0o600
+    if hasattr(os, "getuid"):  # POSIX file permissions are not enforced on Windows
+        assert stat.S_IMODE(new_path.stat().st_mode) == 0o600
     migrated = Store(new_path)
     assert migrated.messages(ident)[0]["content"] == "keep this"
     assert migrated.tasks()[0]["title"] == "existing todo"

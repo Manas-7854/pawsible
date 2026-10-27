@@ -1,5 +1,6 @@
 import math
 import random
+import sys
 import threading
 import time
 
@@ -18,6 +19,43 @@ from .workspaces import exclude_from_focus, show_on_all_workspaces
 
 
 MARKDOWN = MarkdownIt("commonmark", {"html": False, "linkify": True})
+
+
+def keep_dialog_on_top(dialog):
+    # On Windows a modal dialog opens behind the always-on-top pet and chat
+    # windows, where it is invisible but still blocks input. This keeps it in front.
+    if sys.platform == "win32":
+        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+
+
+def _message(parent, icon, title, text, buttons):
+    box = QMessageBox(icon, title, text, buttons, parent)
+    keep_dialog_on_top(box)
+    return box.exec()
+
+
+def message_warning(parent, title, text):
+    return _message(parent, QMessageBox.Icon.Warning, title, text, QMessageBox.StandardButton.Ok)
+
+
+def message_information(parent, title, text):
+    return _message(parent, QMessageBox.Icon.Information, title, text, QMessageBox.StandardButton.Ok)
+
+
+def message_question(parent, title, text):
+    return _message(parent, QMessageBox.Icon.Question, title, text, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+
+
+def ask_text(parent, title, label, text="", multiline=False):
+    dialog = QInputDialog(parent)
+    keep_dialog_on_top(dialog)
+    if multiline:
+        dialog.setOption(QInputDialog.InputDialogOption.UsePlainTextEditForTextInput, True)
+    dialog.setWindowTitle(title)
+    dialog.setLabelText(label)
+    dialog.setTextValue(text)
+    accepted = dialog.exec() == QDialog.DialogCode.Accepted
+    return dialog.textValue(), accepted
 
 
 class InputBox(QTextEdit):
@@ -375,6 +413,7 @@ class SettingsDialog(QDialog):
     def __init__(self, store, characters, parent=None):
         super().__init__(parent)
         self.setWindowTitle("jamun settings")
+        keep_dialog_on_top(self)
         self.store = store
         layout = QFormLayout(self)
         self.character = QComboBox()
@@ -402,7 +441,7 @@ class SettingsDialog(QDialog):
     def accept(self):
         for key, value in (("model", self.model.text().strip()), ("open_shortcut", self.open_shortcut.text().strip()), ("hide_shortcut", self.hide_shortcut.text().strip()), ("size", self.size.value())):
             if not str(value):
-                QMessageBox.warning(self, "Missing setting", f"{key} cannot be empty")
+                message_warning(self, "Missing setting", f"{key} cannot be empty")
                 return
             self.store.set_setting(key, value)
         self.store.set_setting("character", self.character.currentData())
@@ -598,7 +637,7 @@ class ChatWindow(QWidget):
     def rename_conversation(self):
         if not self.current_id:
             return
-        title, ok = QInputDialog.getText(self, "Rename conversation", "Title")
+        title, ok = ask_text(self, "Rename conversation", "Title")
         if ok and title.strip():
             self.store.rename_conversation(self.current_id, title)
             self.reload_history()
@@ -607,9 +646,9 @@ class ChatWindow(QWidget):
         if not self.current_id:
             return
         if self.send_button.isEnabled() is False:
-            QMessageBox.information(self, "Reply in progress", "Stop the current reply before deleting a conversation.")
+            message_information(self, "Reply in progress", "Stop the current reply before deleting a conversation.")
             return
-        if QMessageBox.question(self, "Delete conversation", "Delete this conversation and its messages?") == QMessageBox.StandardButton.Yes:
+        if message_question(self, "Delete conversation", "Delete this conversation and its messages?") == QMessageBox.StandardButton.Yes:
             self.store.delete_conversation(self.current_id)
             self.current_id = None
             self.reload_history()
@@ -668,7 +707,7 @@ class ChatWindow(QWidget):
             self.todo_due.clear()
             self.reload_tasks()
         except ValueError as exc:
-            QMessageBox.warning(self, "Task error", str(exc))
+            message_warning(self, "Task error", str(exc))
 
     def selected_task_id(self):
         item = self.todo_list.currentItem()
@@ -681,7 +720,7 @@ class ChatWindow(QWidget):
                 self.store.update_task(ident, title=self.todo_title.text(), notes=self.todo_notes.text(), due_date=self.todo_due.text().strip())
                 self.reload_tasks()
             except ValueError as exc:
-                QMessageBox.warning(self, "Task error", str(exc))
+                message_warning(self, "Task error", str(exc))
 
     def complete_task(self):
         ident = self.selected_task_id()
@@ -703,7 +742,7 @@ class ChatWindow(QWidget):
             self.memory_list.addItem(item)
 
     def add_memory(self):
-        text, ok = QInputDialog.getMultiLineText(self, "Save memory", "What should jamun remember?")
+        text, ok = ask_text(self, "Save memory", "What should jamun remember?", multiline=True)
         if ok and text.strip():
             self.store.add_memory(text)
             self.reload_memories()
@@ -711,7 +750,7 @@ class ChatWindow(QWidget):
     def edit_memory(self):
         item = self.memory_list.currentItem()
         if item:
-            text, ok = QInputDialog.getMultiLineText(self, "Edit memory", "Memory", item.text())
+            text, ok = ask_text(self, "Edit memory", "Memory", item.text(), multiline=True)
             if ok and text.strip():
                 self.store.update_memory(item.data(Qt.ItemDataRole.UserRole), text)
                 self.reload_memories()
@@ -727,6 +766,7 @@ class PreviewDialog(QDialog):
     def __init__(self, actions):
         super().__init__()
         self.setWindowTitle("jamun animation preview")
+        keep_dialog_on_top(self)
         self.resize(950, 650)
         layout = QVBoxLayout(self)
         scroll = QScrollArea()

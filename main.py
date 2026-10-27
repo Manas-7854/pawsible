@@ -7,6 +7,8 @@ import time
 
 
 def signal_running_instance(name, command):
+    if not hasattr(os, "getuid") or not hasattr(socket, "AF_UNIX"):
+        return False
     address = os.path.join(tempfile.gettempdir(), f"{name}-{os.getuid()}")
     try:
         target = os.stat(address, follow_symlinks=False)
@@ -23,7 +25,7 @@ def signal_running_instance(name, command):
 
 if __name__ == "__main__":
     command = sys.argv[2] if len(sys.argv) == 3 and sys.argv[1] == "--command" and sys.argv[2] in {"toggle", "focus", "hide", "pet", "chat", "quit"} else None
-    for legacy_name in ("jamun", "pengu"):
+    for legacy_name in ("jamun", "pengu") if hasattr(os, "getuid") else ():
         legacy_socket = os.path.join(tempfile.gettempdir(), f"{legacy_name}-{os.getuid()}")
         if signal_running_instance(legacy_name, "quit"):
             deadline = time.monotonic() + 40
