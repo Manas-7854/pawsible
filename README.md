@@ -1,6 +1,6 @@
 # Pawsible
 
-[▶ Watch the demo](demo.mp4)
+![Pawsible demo showing Jamun on the desktop](demo.gif)
 
 <img src="sprites/jamun-preview.png" alt="Jamun the penguin" width="64" height="64">
 
