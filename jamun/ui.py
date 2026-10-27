@@ -4,10 +4,10 @@ import threading
 import time
 
 from markdown_it import MarkdownIt
-from PySide6.QtCore import Qt, QTimer, Signal, QObject
+from PySide6.QtCore import Qt, QTimer, Signal, QObject, QRect
 from PySide6.QtGui import QKeyEvent, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
+    QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QScrollArea, QSpinBox, QTabWidget,
     QTextBrowser, QTextEdit, QVBoxLayout, QWidget,
@@ -62,6 +62,32 @@ class GenerationWorker(QObject):
         self.finished.emit(self.conversation_id, error)
 
 
+def _clamp(value, low, high):
+    return max(low, min(value, high))
+
+
+def cross_waypoints(here, there, current, size, margin=18):
+    width, height = size
+    x, y = current
+    dx = there.center().x() - here.center().x()
+    dy = there.center().y() - here.center().y()
+    if abs(dx) >= abs(dy):
+        if dx >= 0:
+            walk_x, entry_x = here.right() - width - margin, there.left() + margin
+        else:
+            walk_x, entry_x = here.left() + margin, there.right() - width - margin
+        walk_y = _clamp(y, here.top() + margin, here.bottom() - height - margin)
+        entry_y = _clamp(y, there.top() + margin, there.bottom() - height - margin)
+    else:
+        if dy >= 0:
+            walk_y, entry_y = here.bottom() - height - margin, there.top() + margin
+        else:
+            walk_y, entry_y = here.top() + margin, there.bottom() - height - margin
+        walk_x = _clamp(x, here.left() + margin, here.right() - width - margin)
+        entry_x = _clamp(x, there.left() + margin, there.right() - width - margin)
+    return (float(walk_x), float(walk_y)), (float(entry_x), float(entry_y))
+
+
 class PetWindow(QWidget):
     clicked = Signal()
     moved = Signal()
@@ -79,7 +105,10 @@ class PetWindow(QWidget):
         self.drag_origin = None
         self.dragging = False
         self.paused = False
+        self.roam_displays = False
         self.target = None
+        self.cross_target = None
+        self.hop_target = None
         self.position = (0.0, 0.0)
         self.last_motion = 0.0
         self.speed = 0.0
@@ -144,6 +173,8 @@ class PetWindow(QWidget):
             self.move(*self.hop_origin)
             self.hop_origin = None
         self.target = None
+        self.cross_target = None
+        self.hop_target = None
         self.rest_action = None
         self.rest_until = 0.0
         self.behavior_timer.setInterval(33)
@@ -165,12 +196,15 @@ class PetWindow(QWidget):
     def resting_position(self):
         return self.hop_origin or (self.x(), self.y())
 
-    def start_jump(self, now=None):
+    def start_jump(self, now=None, target=None):
         if self.paused or self.dragging:
             return False
         self.halt_movement()
         now = time.monotonic() if now is None else now
         self.hop_origin = (self.x(), self.y())
+        self.hop_target = target if target is not None else self.hop_origin
+        if self.hop_target[0] != self.hop_origin[0]:
+            self.facing_left = self.hop_target[0] < self.hop_origin[0]
         self.hop_started = now
         animation = self.actions["jump"]
         self.hop_duration = max(0.55, len(animation["frames"]) * animation["duration_ms"] / 1000)
@@ -181,16 +215,22 @@ class PetWindow(QWidget):
 
     def advance_jump(self, now):
         progress = min(1.0, (now - self.hop_started) / self.hop_duration)
+        origin_x, origin_y = self.hop_origin
+        target_x, target_y = self.hop_target
         if progress >= 1.0:
-            self.move(*self.hop_origin)
+            self.move(round(target_x), round(target_y))
             self.hop_origin = None
+            self.hop_target = None
             self.position = (float(self.x()), float(self.y()))
             self.set_action("idle")
             return
+        base_x = origin_x + (target_x - origin_x) * progress
+        base_y = origin_y + (target_y - origin_y) * progress
         screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
-        rise = min(self.height() * 0.8, self.hop_origin[1] - screen.availableGeometry().top())
+        span = abs(target_x - origin_x) + abs(target_y - origin_y)
+        rise = min(self.height() * 0.8 + span * 0.15, max(base_y, origin_y) - screen.availableGeometry().top())
         lift = round(max(0, rise) * 4 * progress * (1 - progress))
-        self.move(self.hop_origin[0], self.hop_origin[1] - lift)
+        self.move(round(base_x), round(base_y - lift))
 
     def advance_frame(self):
         action = self.actions[self.action]
@@ -212,15 +252,33 @@ class PetWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         frame = self.actions[self.action]["frames"][self.frame_index]
-        if self.action == "walk" and self.facing_left:
+        crossing = self.action == "jump" and self.hop_origin is not None and self.hop_target is not None and self.hop_target[0] != self.hop_origin[0]
+        if self.facing_left and (self.action == "walk" or crossing):
             painter.translate(self.width(), 0)
             painter.scale(-1, 1)
         painter.drawPixmap(self.rect(), frame, self.render_crop or frame.rect())
 
+    def nearest_screen(self, point):
+        best, best_distance = QApplication.primaryScreen(), None
+        for candidate in QApplication.screens():
+            area = candidate.availableGeometry()
+            dx = max(area.left() - point.x(), 0, point.x() - area.right())
+            dy = max(area.top() - point.y(), 0, point.y() - area.bottom())
+            distance = dx * dx + dy * dy
+            if best_distance is None or distance < best_distance:
+                best, best_distance = candidate, distance
+        return best
+
     def keep_on_screen(self):
         if self.hop_origin is not None:
             self.halt_movement()
-        screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        center = self.geometry().center()
+        if self.roam_displays and len(QApplication.screens()) > 1:
+            if QApplication.screenAt(center) is not None:
+                return
+            screen = self.nearest_screen(center)
+        else:
+            screen = QApplication.screenAt(center) or QApplication.primaryScreen()
         area = screen.availableGeometry()
         x = max(area.left(), min(self.x(), area.right() - self.width() + 1))
         y = max(area.top(), min(self.y(), area.bottom() - self.height() + 1))
@@ -229,8 +287,28 @@ class PetWindow(QWidget):
             self.position = (float(x), float(y))
             self.target = None
 
+    def maybe_cross(self, current):
+        others = [screen for screen in QApplication.screens() if screen is not current]
+        if not others or random.random() > 0.3:
+            return False
+        destination = random.choice(others)
+        walk, entry = cross_waypoints(
+            current.availableGeometry(), destination.availableGeometry(),
+            (self.x(), self.y()), (self.width(), self.height()),
+        )
+        self.target = walk
+        self.cross_target = entry
+        self.position = (float(self.x()), float(self.y()))
+        self.last_motion = time.monotonic()
+        self.speed = random.uniform(60, 90)
+        self.facing_left = walk[0] < self.x()
+        self.set_action("walk")
+        return True
+
     def start_trip(self):
         screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        if self.roam_displays and self.maybe_cross(screen):
+            return True
         area = screen.availableGeometry()
         margin = 18
         left = area.left() + margin
@@ -284,6 +362,12 @@ class PetWindow(QWidget):
                 self.move(round(self.target[0]), round(self.target[1]))
                 self.position = self.target
                 self.target = None
+                if self.cross_target is not None:
+                    entry = self.cross_target
+                    self.cross_target = None
+                    self.start_jump(now, target=entry)
+                    self.moved.emit()
+                    return
                 self.set_action("idle")
                 self.next_behavior = now + random.uniform(0.8, 2.8)
             else:
@@ -387,11 +471,14 @@ class SettingsDialog(QDialog):
         self.size = QSpinBox()
         self.size.setRange(2, 10)
         self.size.setValue(int(store.setting("size", 5)))
+        self.roam = QCheckBox("Walk between displays")
+        self.roam.setChecked(store.setting("roam_displays", "0") == "1")
         layout.addRow("Gemini model", self.model)
         layout.addRow("Character", self.character)
         layout.addRow("Open chat shortcut (GNOME)", self.open_shortcut)
         layout.addRow("Hide jamun shortcut (GNOME)", self.hide_shortcut)
         layout.addRow("Character size", self.size)
+        layout.addRow(self.roam)
         hint = QLabel("Shortcut changes are applied through GNOME custom keybindings.")
         hint.setWordWrap(True)
         layout.addRow(hint)
@@ -406,6 +493,7 @@ class SettingsDialog(QDialog):
                 return
             self.store.set_setting(key, value)
         self.store.set_setting("character", self.character.currentData())
+        self.store.set_setting("roam_displays", "1" if self.roam.isChecked() else "0")
         super().accept()
 
 
