@@ -7,7 +7,7 @@ from markdown_it import MarkdownIt
 from PySide6.QtCore import Qt, QTimer, Signal, QObject
 from PySide6.QtGui import QKeyEvent, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
+    QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QScrollArea, QSpinBox, QTabWidget,
     QTextBrowser, QTextEdit, QVBoxLayout, QWidget,
@@ -18,6 +18,17 @@ from .workspaces import exclude_from_focus, show_on_all_workspaces
 
 
 MARKDOWN = MarkdownIt("commonmark", {"html": False, "linkify": True})
+
+
+def side_has_neighbor(edge, geometry, others):
+    for other in others:
+        if other.top() > geometry.bottom() or other.bottom() < geometry.top():
+            continue
+        if edge == "left" and abs(other.right() + 1 - geometry.left()) <= 2:
+            return True
+        if edge == "right" and abs(other.left() - geometry.right() - 1) <= 2:
+            return True
+    return False
 
 
 class InputBox(QTextEdit):
@@ -90,6 +101,14 @@ class PetWindow(QWidget):
         self.hover_cooldown_until = 0.0
         self.rest_action = None
         self.rest_until = 0.0
+        self.arrival_action = None
+        self.edge_antics = False
+        self.peek_phase = None
+        self.peek_edge = None
+        self.peek_tilt = 0
+        self.peek_out = None
+        self.peek_in = None
+        self.peek_hold_until = 0.0
         self.next_behavior = time.monotonic() + 1.5
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -143,12 +162,17 @@ class PetWindow(QWidget):
         if self.hop_origin is not None:
             self.move(*self.hop_origin)
             self.hop_origin = None
+        was_peeking = self.peek_phase is not None
+        self.peek_phase = None
         self.target = None
+        self.arrival_action = None
         self.rest_action = None
         self.rest_until = 0.0
         self.behavior_timer.setInterval(33)
         self.position = (float(self.x()), float(self.y()))
         self.next_behavior = time.monotonic() + random.uniform(1, 2.5)
+        if was_peeking:
+            self.keep_on_screen()
 
     def start_rest(self, name, now=None):
         if self.paused or self.dragging or name not in self.rest_actions:
@@ -212,12 +236,18 @@ class PetWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         frame = self.actions[self.action]["frames"][self.frame_index]
-        if self.action == "walk" and self.facing_left:
+        if self.peek_phase == "hold" and self.peek_tilt:
+            painter.translate(self.width() / 2, self.height() / 2)
+            painter.rotate(self.peek_tilt)
+            painter.translate(-self.width() / 2, -self.height() / 2)
+        if self.facing_left and (self.action == "walk" or self.peek_phase is not None):
             painter.translate(self.width(), 0)
             painter.scale(-1, 1)
         painter.drawPixmap(self.rect(), frame, self.render_crop or frame.rect())
 
     def keep_on_screen(self):
+        if self.peek_phase is not None:
+            return
         if self.hop_origin is not None:
             self.halt_movement()
         screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
@@ -255,12 +285,136 @@ class PetWindow(QWidget):
             if not choices:
                 return False
             self.target = random.choice(choices)
+        self.arrival_action = None
         self.position = (float(x), float(y))
         self.last_motion = time.monotonic()
         self.speed = random.uniform(60, 90)
         self.facing_left = self.target[0] < x
         self.set_action("walk")
         return True
+
+    def free_edges(self, area, geometry):
+        edges = []
+        if area.left() == geometry.left():
+            edges.append("left")
+        if area.right() == geometry.right():
+            edges.append("right")
+        if area.top() == geometry.top():
+            edges.append("top")
+        return edges
+
+    def start_peek(self, now):
+        if self.paused or self.dragging:
+            return False
+        screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        geometry = screen.geometry()
+        others = [other.geometry() for other in QApplication.screens() if other is not screen]
+        edges = [edge for edge in self.free_edges(area, geometry)
+                 if edge in ("left", "right") and not side_has_neighbor(edge, geometry, others)]
+        if not edges:
+            return False
+        self.halt_movement()
+        edge = random.choice(edges)
+        self.peek_edge = edge
+        self.peek_tilt = 6 if edge == "left" else -6
+        depth = self.width() * 9 // 20
+        y = max(area.top(), min(self.y(), area.bottom() - self.height()))
+        if edge == "left":
+            self.peek_out = (area.left() - depth, y)
+            self.peek_in = (area.left(), y)
+        else:
+            self.peek_out = (area.right() - self.width() + depth + 1, y)
+            self.peek_in = (area.right() - self.width() + 1, y)
+        self.facing_left = edge == "left"
+        self.peek_phase = "out"
+        self.peek_hold_until = 0.0
+        self.position = (float(self.x()), float(self.y()))
+        self.last_motion = now
+        self.speed = 72
+        self.set_action("walk")
+        return True
+
+    def advance_peek(self, now):
+        if self.peek_phase == "hold":
+            if now >= self.peek_hold_until:
+                self.peek_phase = "back"
+                self.last_motion = now
+                self.set_action("walk")
+            return
+        goal = self.peek_out if self.peek_phase == "out" else self.peek_in
+        x, y = self.position
+        dx, dy = goal[0] - x, goal[1] - y
+        distance = math.hypot(dx, dy)
+        step = self.speed * min(now - self.last_motion, 0.08)
+        self.last_motion = now
+        if distance <= step:
+            self.move(round(goal[0]), round(goal[1]))
+            self.position = (float(goal[0]), float(goal[1]))
+            if self.peek_phase == "out":
+                self.peek_phase = "hold"
+                self.peek_hold_until = now + random.uniform(1.6, 3.2)
+                if self.peek_edge in ("left", "right"):
+                    self.facing_left = self.peek_edge == "right"
+                self.set_action("idle")
+            else:
+                self.peek_phase = None
+                self.set_action("idle")
+                self.next_behavior = now + random.uniform(1.2, 3.0)
+        else:
+            self.position = (x + dx * step / distance, y + dy * step / distance)
+            self.move(round(self.position[0]), round(self.position[1]))
+        self.moved.emit()
+
+    def start_corner_rest(self, now):
+        if self.paused or self.dragging:
+            return False
+        screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        margin = 18
+        left = area.left() + margin
+        top = area.top() + margin
+        right = max(left, area.right() - self.width() - margin)
+        bottom = max(top, area.bottom() - self.height() - margin)
+        x, y = self.x(), self.y()
+        corners = [(left, top), (right, top), (left, bottom), (right, bottom)]
+        reachable = [corner for corner in corners if math.hypot(corner[0] - x, corner[1] - y) >= 90]
+        if not reachable:
+            return False
+        self.target = random.choice(reachable)
+        self.arrival_action = "rest"
+        self.position = (float(x), float(y))
+        self.last_motion = now
+        self.speed = random.uniform(60, 90)
+        self.facing_left = self.target[0] < x
+        self.set_action("walk")
+        return True
+
+    def start_edge_slide(self, now):
+        if self.paused or self.dragging:
+            return False
+        screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        margin = 18
+        left = area.left() + margin
+        right = max(left, area.right() - self.width() - margin)
+        if right - left < 300:
+            return False
+        x = self.x()
+        target_x = left if x > (left + right) / 2 else right
+        self.target = (target_x, area.bottom() - self.height() - margin)
+        self.arrival_action = None
+        self.position = (float(x), float(self.y()))
+        self.last_motion = now
+        self.speed = random.uniform(55, 80)
+        self.facing_left = target_x < x
+        self.set_action("walk")
+        return True
+
+    def start_edge_antic(self, now):
+        antics = [self.start_peek, self.start_corner_rest, self.start_edge_slide]
+        random.shuffle(antics)
+        return any(antic(now) for antic in antics)
 
     def behave(self):
         if self.dragging:
@@ -274,6 +428,9 @@ class PetWindow(QWidget):
         if self.hop_origin is not None:
             self.advance_jump(now)
             return
+        if self.peek_phase is not None:
+            self.advance_peek(now)
+            return
         if self.target is not None:
             x, y = self.position
             dx, dy = self.target[0] - x, self.target[1] - y
@@ -284,6 +441,17 @@ class PetWindow(QWidget):
                 self.move(round(self.target[0]), round(self.target[1]))
                 self.position = self.target
                 self.target = None
+                if self.arrival_action == "rest":
+                    self.arrival_action = None
+                    if self.rest_actions:
+                        self.moved.emit()
+                        self.start_rest(random.choice(list(self.rest_actions)), now)
+                        return
+                    self.set_action("idle")
+                    self.next_behavior = now + random.uniform(3.5, 6.5)
+                    self.moved.emit()
+                    return
+                self.arrival_action = None
                 self.set_action("idle")
                 self.next_behavior = now + random.uniform(0.8, 2.8)
             else:
@@ -300,6 +468,8 @@ class PetWindow(QWidget):
                 self.next_behavior = now + random.uniform(0.8, 2.0)
             return
         if now < self.next_behavior:
+            return
+        if self.edge_antics and random.random() < 0.14 and self.start_edge_antic(now):
             return
         roll = random.random()
         if self.rest_actions:
@@ -328,7 +498,7 @@ class PetWindow(QWidget):
 
     def enterEvent(self, event):
         now = time.monotonic()
-        if not self.dragging and self.rest_action in (None, "idle") and now >= self.hover_cooldown_until and self.action in ("idle", "walk"):
+        if not self.dragging and self.peek_phase is None and self.rest_action in (None, "idle") and now >= self.hover_cooldown_until and self.action in ("idle", "walk"):
             choice = random.choice(self.hover_actions)
             if choice == "jump" and not self.paused:
                 self.start_jump(now)
@@ -387,11 +557,14 @@ class SettingsDialog(QDialog):
         self.size = QSpinBox()
         self.size.setRange(2, 10)
         self.size.setValue(int(store.setting("size", 5)))
+        self.edge_antics = QCheckBox("Peek, slide and rest at screen edges")
+        self.edge_antics.setChecked(store.setting("edge_antics", "1") == "1")
         layout.addRow("Gemini model", self.model)
         layout.addRow("Character", self.character)
         layout.addRow("Open chat shortcut (GNOME)", self.open_shortcut)
         layout.addRow("Hide jamun shortcut (GNOME)", self.hide_shortcut)
         layout.addRow("Character size", self.size)
+        layout.addRow(self.edge_antics)
         hint = QLabel("Shortcut changes are applied through GNOME custom keybindings.")
         hint.setWordWrap(True)
         layout.addRow(hint)
@@ -406,6 +579,7 @@ class SettingsDialog(QDialog):
                 return
             self.store.set_setting(key, value)
         self.store.set_setting("character", self.character.currentData())
+        self.store.set_setting("edge_antics", "1" if self.edge_antics.isChecked() else "0")
         super().accept()
 
 
