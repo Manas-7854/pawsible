@@ -1,5 +1,7 @@
 # Pawsible
 
+[▶ Watch the demo](demo.mp4)
+
 <img src="sprites/jamun-preview.png" alt="Jamun the penguin" width="64" height="64">
 
 Pawsible puts a little pet on your desktop. Click it to chat, keep todos, and save memories. Jamun, the penguin, is included, and other characters become available when their sprite sheets are installed locally.
