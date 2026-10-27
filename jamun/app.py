@@ -68,6 +68,7 @@ class JamunApp(QObject):
         self.active_message_id = None
         self.active_conversation_id = None
         self.pet = PetWindow(character["actions"], int(store.setting("size", 5)), character["play_actions"], character["hover_actions"], character["render_crop"], character["rest_actions"])
+        self.pet.edge_antics = store.setting("edge_antics", "1") == "1"
         self.chat = ChatWindow(store)
         self.chat.set_character_label(self.character_id)
         self.position_save_timer = QTimer(self)
@@ -197,6 +198,7 @@ class JamunApp(QObject):
         dialog = SettingsDialog(self.store, self.characters, self.chat)
         if dialog.exec():
             self.change_character(self.store.setting("character", "penguin"))
+            self.pet.edge_antics = self.store.setting("edge_antics", "1") == "1"
             self.pet.set_scale(int(self.store.setting("size", 5)))
             self.pet.keep_on_screen()
             if self.state == "chat":
