@@ -13,11 +13,11 @@ from PySide6.QtGui import QActionGroup, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from .animation import load_characters
+from .animation import load_characters, load_movements
 from .provider import GeminiProvider
 from .shortcuts import install_shortcuts, remove_shortcuts
 from .storage import Store, secure_data_dir, secure_data_file
-from .ui import ChatWindow, GenerationWorker, PetWindow, PreviewDialog, SettingsDialog
+from .ui import ChatWindow, GenerationWorker, NameTag, PetWindow, PreviewDialog, SettingsDialog
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,13 +50,14 @@ def send_existing(name, command):
 
 
 class JamunApp(QObject):
-    def __init__(self, qt, server, store, characters, api_key):
+    def __init__(self, qt, server, store, characters, movements, api_key):
         super().__init__()
         self.qt = qt
         self.server = server
         self.store = store
         self.api_key = api_key
         self.characters = characters
+        self.movements = movements
         self.character_id = store.setting("character", "penguin")
         if self.character_id not in characters:
             self.character_id = "penguin"
@@ -70,12 +71,15 @@ class JamunApp(QObject):
         self.pet = PetWindow(character["actions"], int(store.setting("size", 5)), character["play_actions"], character["hover_actions"], character["render_crop"], character["rest_actions"])
         self.chat = ChatWindow(store)
         self.chat.set_character_label(self.character_id)
+        self.name_tag = NameTag()
+        self.apply_temperament()
         self.position_save_timer = QTimer(self)
         self.position_save_timer.setSingleShot(True)
         self.position_save_timer.setInterval(500)
         self.position_save_timer.timeout.connect(self.save_position)
         self.pet.clicked.connect(lambda: self.set_state("chat"))
         self.pet.moved.connect(self.position_save_timer.start)
+        self.pet.moved.connect(self.position_name_tag)
         self.chat.closed_to_pet.connect(lambda: self.set_state("pet"))
         self.chat.send_requested.connect(self.send)
         self.chat.stop_requested.connect(self.stop)
@@ -119,6 +123,21 @@ class JamunApp(QObject):
         self.store.set_setting("pet_x", x)
         self.store.set_setting("pet_y", y)
 
+    def position_name_tag(self):
+        if not self.name_tag.isVisible():
+            return
+        x = self.pet.x() + (self.pet.width() - self.name_tag.width()) // 2
+        y = self.pet.y() - self.name_tag.height() + 2
+        self.name_tag.move(x, y)
+
+    def apply_name_tag(self):
+        if self.store.setting("show_name", "0") == "1" and self.pet.isVisible():
+            self.name_tag.set_text(self.chat.pet_name)
+            self.name_tag.show()
+            self.position_name_tag()
+        else:
+            self.name_tag.hide()
+
     def set_state(self, state):
         if state == "hidden":
             self.chat.hide()
@@ -139,6 +158,7 @@ class JamunApp(QObject):
             self.chat.raise_()
             self.chat.activateWindow()
             self.chat.input.setFocus()
+        self.apply_name_tag()
         self.state = state
 
     def anchor_chat(self):
@@ -181,6 +201,17 @@ class JamunApp(QObject):
         self.pause_action.setText("Resume movement" if paused else "Pause movement")
         self.chat.status.setText("Movement paused" if paused else "Movement resumed")
 
+    def current_movement(self):
+        chosen = self.store.setting("movement", "")
+        if chosen and chosen in self.movements:
+            return self.movements[chosen]
+        default = self.characters.get(self.character_id, {}).get("movement")
+        return self.movements.get(default) or self.movements["balanced"]
+
+    def apply_temperament(self):
+        movement = self.current_movement()
+        self.pet.set_temperament(movement["speed"], movement["weights"], movement["pace"])
+
     def change_character(self, ident):
         if ident not in self.characters:
             return
@@ -192,13 +223,18 @@ class JamunApp(QObject):
         self.chat.set_character_label(ident)
         self.character_menu_actions[ident].setChecked(True)
         self.chat.status.setText(f"Character: {character['label']}")
+        self.apply_temperament()
+        self.apply_name_tag()
 
     def settings(self):
-        dialog = SettingsDialog(self.store, self.characters, self.chat)
+        dialog = SettingsDialog(self.store, self.characters, self.movements, self.chat)
         if dialog.exec():
             self.change_character(self.store.setting("character", "penguin"))
+            self.chat.set_pet_name(self.store.setting("pet_name", "jamun"))
+            self.apply_temperament()
             self.pet.set_scale(int(self.store.setting("size", 5)))
             self.pet.keep_on_screen()
+            self.apply_name_tag()
             if self.state == "chat":
                 self.anchor_chat()
             if os.environ.get("XDG_CURRENT_DESKTOP", "").upper().find("GNOME") >= 0:
@@ -244,7 +280,7 @@ class JamunApp(QObject):
         self.thread.start()
         self.chat.send_button.setEnabled(False)
         self.chat.stop_button.setEnabled(True)
-        self.chat.status.setText("jamun is thinking…")
+        self.chat.status.setText(f"{self.chat.pet_name} is thinking…")
 
     @Slot(int, str)
     def on_text(self, ident, piece):
@@ -364,6 +400,7 @@ def main():
     qt = QApplication(sys.argv)
     qt.setQuitOnLastWindowClosed(False)
     characters = load_characters(ROOT / "characters.json")
+    movements = load_movements(ROOT / "movements.json")
     if args.character and args.character not in characters:
         parser.error(f"Character {args.character!r} is unavailable. Installed choices: {', '.join(characters)}")
     if args.preview:
@@ -390,7 +427,7 @@ def main():
     if not server.listen(name):
         raise RuntimeError("Could not start the single-instance command socket")
     store = Store(database)
-    app = JamunApp(qt, server, store, characters, os.getenv("GEMINI_API_KEY", ""))
+    app = JamunApp(qt, server, store, characters, movements, os.getenv("GEMINI_API_KEY", ""))
     app.lock_file = lock_file
     app.command(command)
     return qt.exec()

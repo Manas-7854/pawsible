@@ -108,5 +108,32 @@ def load_characters(path: Path):
         for name, seconds in rest_actions.items():
             if not isinstance(seconds, list) or len(seconds) != 2 or any(not isinstance(value, (int, float)) for value in seconds) or not 1 <= seconds[0] <= seconds[1] <= 120:
                 raise ValueError(f"{ident} has an invalid rest duration for {name}")
-        characters[ident] = {"label": entry["label"], "actions": actions, "play_actions": play_actions, "hover_actions": hover_actions, "rest_actions": rest_actions, "render_crop": render_crop}
+        movement = entry.get("movement")
+        if movement is not None and not isinstance(movement, str):
+            raise ValueError(f"{ident} has an invalid default movement")
+        characters[ident] = {"label": entry["label"], "actions": actions, "play_actions": play_actions, "hover_actions": hover_actions, "rest_actions": rest_actions, "render_crop": render_crop, "movement": movement}
     return characters
+
+
+def load_movements(path: Path):
+    registry = json.loads(path.read_text())
+    movements = {}
+    for ident, entry in registry.items():
+        label = entry["label"]
+        if not isinstance(label, str) or not label:
+            raise ValueError(f"{ident} has an invalid label")
+        speed = entry["speed"]
+        if not isinstance(speed, list) or len(speed) != 2 or any(not isinstance(value, (int, float)) for value in speed) or not 1 <= speed[0] <= speed[1] <= 400:
+            raise ValueError(f"{ident} has an invalid speed range")
+        weights = entry["weights"]
+        if not isinstance(weights, dict) or set(weights) - {"walk", "jump", "rest", "play"}:
+            raise ValueError(f"{ident} has invalid behavior weights")
+        if any(not isinstance(value, (int, float)) or value < 0 for value in weights.values()) or sum(weights.values()) <= 0:
+            raise ValueError(f"{ident} has invalid behavior weights")
+        pace = entry["pace"]
+        if not isinstance(pace, (int, float)) or not 0.2 <= pace <= 4:
+            raise ValueError(f"{ident} has an invalid pace")
+        movements[ident] = {"label": label, "speed": (float(speed[0]), float(speed[1])), "weights": {name: float(value) for name, value in weights.items()}, "pace": float(pace)}
+    if "balanced" not in movements:
+        raise ValueError("A balanced movement is required as the default")
+    return movements

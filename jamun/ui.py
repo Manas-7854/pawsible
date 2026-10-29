@@ -7,7 +7,7 @@ from markdown_it import MarkdownIt
 from PySide6.QtCore import Qt, QTimer, Signal, QObject
 from PySide6.QtGui import QKeyEvent, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
+    QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QScrollArea, QSpinBox, QTabWidget,
     QTextBrowser, QTextEdit, QVBoxLayout, QWidget,
@@ -62,6 +62,24 @@ class GenerationWorker(QObject):
         self.finished.emit(self.conversation_id, error)
 
 
+class NameTag(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.label = QLabel()
+        self.label.setStyleSheet("color: #f2f5fb; background: rgba(20, 26, 38, 0.78); border-radius: 7px; padding: 1px 7px; font: 12px 'Sans Serif';")
+        layout.addWidget(self.label)
+
+    def set_text(self, text):
+        self.label.setText(text)
+        self.adjustSize()
+
+
 class PetWindow(QWidget):
     clicked = Signal()
     moved = Signal()
@@ -90,6 +108,9 @@ class PetWindow(QWidget):
         self.hover_cooldown_until = 0.0
         self.rest_action = None
         self.rest_until = 0.0
+        self.speed_range = (60, 90)
+        self.behavior_weights = {"walk": 45, "jump": 18, "rest": 20, "play": 17}
+        self.pace = 1.0
         self.next_behavior = time.monotonic() + 1.5
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -100,6 +121,20 @@ class PetWindow(QWidget):
         self.behavior_timer = QTimer(self, timeout=self.behave)
         self.behavior_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.behavior_timer.setInterval(33)
+
+    def set_temperament(self, speed_range, weights, pace):
+        self.speed_range = speed_range
+        self.behavior_weights = weights
+        self.pace = pace
+
+    def pick_behavior(self):
+        weights = dict(self.behavior_weights)
+        if not self.rest_actions:
+            weights.pop("rest", None)
+        options = [name for name in ("walk", "jump", "rest", "play") if weights.get(name, 0) > 0]
+        if not options:
+            return "walk"
+        return random.choices(options, [weights[name] for name in options])[0]
 
     def set_scale(self, scale):
         self.scale = scale
@@ -186,11 +221,13 @@ class PetWindow(QWidget):
             self.hop_origin = None
             self.position = (float(self.x()), float(self.y()))
             self.set_action("idle")
+            self.moved.emit()
             return
         screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
         rise = min(self.height() * 0.8, self.hop_origin[1] - screen.availableGeometry().top())
         lift = round(max(0, rise) * 4 * progress * (1 - progress))
         self.move(self.hop_origin[0], self.hop_origin[1] - lift)
+        self.moved.emit()
 
     def advance_frame(self):
         action = self.actions[self.action]
@@ -257,7 +294,7 @@ class PetWindow(QWidget):
             self.target = random.choice(choices)
         self.position = (float(x), float(y))
         self.last_motion = time.monotonic()
-        self.speed = random.uniform(60, 90)
+        self.speed = random.uniform(*self.speed_range)
         self.facing_left = self.target[0] < x
         self.set_action("walk")
         return True
@@ -285,7 +322,7 @@ class PetWindow(QWidget):
                 self.position = self.target
                 self.target = None
                 self.set_action("idle")
-                self.next_behavior = now + random.uniform(0.8, 2.8)
+                self.next_behavior = now + random.uniform(0.8, 2.8) * self.pace
             else:
                 self.position = (x + dx * step / distance, y + dy * step / distance)
                 self.move(round(self.position[0]), round(self.position[1]))
@@ -297,15 +334,11 @@ class PetWindow(QWidget):
                 self.rest_until = 0.0
                 self.behavior_timer.setInterval(33)
                 self.set_action("idle")
-                self.next_behavior = now + random.uniform(0.8, 2.0)
+                self.next_behavior = now + random.uniform(0.8, 2.0) * self.pace
             return
         if now < self.next_behavior:
             return
-        roll = random.random()
-        if self.rest_actions:
-            choice = "walk" if roll < 0.45 else "jump" if roll < 0.63 else "rest" if roll < 0.83 else "play"
-        else:
-            choice = "walk" if roll < 0.55 else "jump" if roll < 0.75 else "play"
+        choice = self.pick_behavior()
         if choice == "walk":
             if not self.start_trip():
                 self.next_behavior = now + 2
@@ -317,7 +350,7 @@ class PetWindow(QWidget):
             choice = random.choice(self.play_actions) if self.play_actions else "idle"
             self.set_action(choice)
             duration = len(self.actions[choice]["frames"]) * self.actions[choice]["duration_ms"] / 1000
-            self.next_behavior = now + duration + random.uniform(0.8, 2.2)
+            self.next_behavior = now + duration + random.uniform(0.8, 2.2) * self.pace
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -372,23 +405,35 @@ class PetWindow(QWidget):
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, store, characters, parent=None):
+    def __init__(self, store, characters, movements, parent=None):
         super().__init__(parent)
         self.setWindowTitle("jamun settings")
         self.store = store
         layout = QFormLayout(self)
+        self.name = QLineEdit(store.setting("pet_name", "jamun"))
+        self.name.setPlaceholderText("jamun")
         self.character = QComboBox()
         for ident, character in characters.items():
             self.character.addItem(character["label"], ident)
         self.character.setCurrentIndex(max(0, self.character.findData(store.setting("character", "penguin"))))
+        self.movement = QComboBox()
+        self.movement.addItem("Follow the character", "")
+        for ident, movement in movements.items():
+            self.movement.addItem(movement["label"], ident)
+        self.movement.setCurrentIndex(max(0, self.movement.findData(store.setting("movement", ""))))
         self.model = QLineEdit(store.setting("model", "gemini-3.5-flash-lite"))
         self.open_shortcut = QLineEdit(store.setting("open_shortcut", "<Shift>space"))
         self.hide_shortcut = QLineEdit(store.setting("hide_shortcut", "<Ctrl><Alt>space"))
         self.size = QSpinBox()
         self.size.setRange(2, 10)
         self.size.setValue(int(store.setting("size", 5)))
+        self.show_name = QCheckBox("Show name tag above the pet")
+        self.show_name.setChecked(store.setting("show_name", "0") == "1")
         layout.addRow("Gemini model", self.model)
+        layout.addRow("Name", self.name)
         layout.addRow("Character", self.character)
+        layout.addRow("Movement", self.movement)
+        layout.addRow(self.show_name)
         layout.addRow("Open chat shortcut (GNOME)", self.open_shortcut)
         layout.addRow("Hide jamun shortcut (GNOME)", self.hide_shortcut)
         layout.addRow("Character size", self.size)
@@ -405,7 +450,10 @@ class SettingsDialog(QDialog):
                 QMessageBox.warning(self, "Missing setting", f"{key} cannot be empty")
                 return
             self.store.set_setting(key, value)
+        self.store.set_setting("pet_name", self.name.text().strip())
         self.store.set_setting("character", self.character.currentData())
+        self.store.set_setting("movement", self.movement.currentData())
+        self.store.set_setting("show_name", "1" if self.show_name.isChecked() else "0")
         super().accept()
 
 
@@ -423,9 +471,11 @@ class ChatWindow(QWidget):
         self.setWindowTitle("jamun")
         self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.resize(620, 520)
+        self.pet_name = (store.setting("pet_name", "jamun") or "jamun").strip() or "jamun"
+        self.char_icon = "🐧"
         root = QVBoxLayout(self)
         header = QHBoxLayout()
-        self.header_label = QLabel("🐧  jamun")
+        self.header_label = QLabel(f"{self.char_icon}  {self.pet_name}")
         header.addWidget(self.header_label)
         header.addStretch()
         settings = QPushButton("⚙")
@@ -533,8 +583,13 @@ class ChatWindow(QWidget):
         """)
 
     def set_character_label(self, ident):
-        icon = {"penguin": "🐧", "midnight_cat": "🐈‍⬛", "shadow_cat": "🐈‍⬛", "white_cat": "🐈", "fox": "🦊"}.get(ident, "🐧")
-        self.header_label.setText(f"{icon}  jamun")
+        self.char_icon = {"penguin": "🐧", "midnight_cat": "🐈‍⬛", "shadow_cat": "🐈‍⬛", "white_cat": "🐈", "fox": "🦊"}.get(ident, "🐧")
+        self.header_label.setText(f"{self.char_icon}  {self.pet_name}")
+
+    def set_pet_name(self, name):
+        self.pet_name = (name or "").strip() or "jamun"
+        self.header_label.setText(f"{self.char_icon}  {self.pet_name}")
+        self.render_messages()
 
     def closeEvent(self, event):
         if self.allow_close:
@@ -620,12 +675,12 @@ class ChatWindow(QWidget):
             return
         parts = []
         for row in self.store.messages(self.current_id):
-            label = "You" if row["role"] == "user" else "jamun"
+            label = "You" if row["role"] == "user" else self.pet_name
             body = MARKDOWN.render(row["content"])
             note = f" <span style='color:#aab7ca'>({row['status']})</span>" if row["status"] != "complete" else ""
             parts.append(f"<div style='margin-bottom:12px'><b>{label}</b>{note}<br>{body}</div>")
         if draft:
-            parts.append(f"<div><b>jamun</b><br>{MARKDOWN.render(draft)}</div>")
+            parts.append(f"<div><b>{self.pet_name}</b><br>{MARKDOWN.render(draft)}</div>")
         self.transcript.setHtml("".join(parts))
         self.transcript.verticalScrollBar().setValue(self.transcript.verticalScrollBar().maximum())
 
